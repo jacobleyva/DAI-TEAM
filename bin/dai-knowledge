@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+"""dai-knowledge — process workspace incoming knowledge into chunked collections.
+
+Adapted from the .codex/DAI/bin/dai-knowledge pattern for use as a generic
+workspace-rooted tool. Auto-detects the workspace by walking up from the
+script's location looking for LAUNCHER.md + a knowledge/ directory.
+
+Processes files from knowledge/incoming/ into Markdown source files and
+referable chunk collections under knowledge/collections/. Supports
+markdown, plain text, HTML, DOCX, PDF (via pdftotext), and CSV inputs.
+
+Commands:
+    process   Process incoming files once.
+    status    Show counts of incoming files and existing collections.
+    watch     Poll incoming/ and process new files on an interval.
+
+Usage:
+    bin/dai-knowledge process
+    bin/dai-knowledge status
+    bin/dai-knowledge watch --interval 30
+    bin/dai-knowledge --workspace /path/to/workspace process
+
+If --workspace is not given, the script auto-detects it. Override the
+auto-detection with the PAI_WORKSPACE environment variable if needed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import html.parser
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Iterable
+from xml.etree import ElementTree
+
+
+TEXT_EXTENSIONS = {".txt", ".log", ".csv", ".json", ".jsonl", ".xml", ".yaml", ".yml", ".toml"}
+MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdown"}
+HTML_EXTENSIONS = {".html", ".htm"}
+DOCX_EXTENSIONS = {".docx"}
+PDF_EXTENSIONS = {".pdf"}
+
+
+class TextExtractor(html.parser.HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() in {"p", "br", "div", "section", "article", "li", "tr", "h1", "h2", "h3", "h4"}:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        text = data.strip()
+        if text:
+            self.parts.append(text)
+
+    def text(self) -> str:
+        return normalize_text(" ".join(self.parts))
+
+
+def find_workspace_root(start: Path) -> Path:
+    env = os.environ.get("PAI_WORKSPACE")
+    if env:
+        candidate = Path(env).expanduser().resolve()
+        if (candidate / "LAUNCHER.md").exists():
+            return candidate
+    cur = start.resolve()
+    for _ in range(8):
+        if (cur / "LAUNCHER.md").exists() and (cur / "knowledge").is_dir():
+            return cur
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    raise SystemExit(
+        f"could not find workspace root from {start}. "
+        f"Pass --workspace or set PAI_WORKSPACE."
+    )
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def slugify(value: str, fallback: str = "knowledge") -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug[:80] or fallback
+
+
+def yaml_quote(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def normalize_text(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def read_text_file(path: Path) -> str:
+    for encoding in ("utf-8", "utf-8-sig", "latin-1"):
+        try:
+            return path.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError(f"could not decode text file: {path}")
+
+
+def extract_pdf(path: Path) -> str:
+    if shutil.which("pdftotext") is None:
+        raise ValueError("pdftotext is not installed; cannot process PDF files")
+    result = subprocess.run(
+        ["pdftotext", "-layout", "-enc", "UTF-8", str(path), "-"],
+        check=True, capture_output=True, text=True,
+    )
+    return normalize_text(result.stdout)
+
+
+def extract_html(path: Path) -> str:
+    parser = TextExtractor()
+    parser.feed(read_text_file(path))
+    return parser.text()
+
+
+def extract_docx(path: Path) -> str:
+    paragraphs: list[str] = []
+    with zipfile.ZipFile(path) as archive:
+        with archive.open("word/document.xml") as handle:
+            root = ElementTree.fromstring(handle.read())
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    for paragraph in root.findall(".//w:p", namespace):
+        runs: list[str] = []
+        for node in paragraph.findall(".//w:t", namespace):
+            if node.text:
+                runs.append(node.text)
+        text = "".join(runs).strip()
+        if text:
+            paragraphs.append(text)
+    return normalize_text("\n\n".join(paragraphs))
+
+
+def csv_preview(path: Path) -> str:
+    text = read_text_file(path)
+    rows = list(csv.reader(text.splitlines()))
+    if not rows:
+        return ""
+    output = ["| " + " | ".join(cell.strip() for cell in rows[0]) + " |"]
+    output.append("| " + " | ".join("---" for _ in rows[0]) + " |")
+    for row in rows[1:200]:
+        padded = row + [""] * (len(rows[0]) - len(row))
+        output.append("| " + " | ".join(cell.strip() for cell in padded[: len(rows[0])]) + " |")
+    if len(rows) > 200:
+        output.append(f"\n_Only the first 200 rows are shown. Total rows: {len(rows)}._")
+    return "\n".join(output)
+
+
+def extract_content(path: Path) -> tuple[str, str]:
+    suffix = path.suffix.lower()
+    if suffix in MARKDOWN_EXTENSIONS: return read_text_file(path), "markdown"
+    if suffix in PDF_EXTENSIONS:      return extract_pdf(path), "pdf"
+    if suffix in HTML_EXTENSIONS:     return extract_html(path), "html"
+    if suffix in DOCX_EXTENSIONS:     return extract_docx(path), "docx"
+    if suffix == ".csv":              return csv_preview(path), "csv"
+    if suffix in TEXT_EXTENSIONS:     return read_text_file(path), suffix.lstrip(".") or "text"
+    try:
+        return read_text_file(path), "text"
+    except ValueError as exc:
+        raise ValueError(f"unsupported or binary file type: {path.suffix}") from exc
+
+
+def title_from_path(path: Path) -> str:
+    title = re.sub(r"[_-]+", " ", path.stem).strip()
+    return title.title() or path.name
+
+
+def to_markdown(path: Path, source_id: str, digest: str) -> tuple[str, dict[str, str]]:
+    raw, content_type = extract_content(path)
+    title = title_from_path(path)
+    body = normalize_text(raw)
+    if not body:
+        raise ValueError("extracted text was empty")
+    if path.suffix.lower() in MARKDOWN_EXTENSIONS and body.lstrip().startswith("---"):
+        markdown_body = re.sub(r"^---\n.*?\n---\n", "", body.lstrip(), count=1, flags=re.DOTALL).strip()
+    else:
+        markdown_body = f"# {title}\n\n{body}"
+    metadata = {
+        "title": title, "source_id": source_id, "source_file": path.name,
+        "source_path": str(path), "source_sha256": digest,
+        "content_type": content_type, "processed_at": now_iso(),
+    }
+    frontmatter = "\n".join([
+        "---",
+        f"title: {yaml_quote(metadata['title'])}",
+        f"source_id: {yaml_quote(metadata['source_id'])}",
+        f"source_file: {yaml_quote(metadata['source_file'])}",
+        f"source_path: {yaml_quote(metadata['source_path'])}",
+        f"source_sha256: {yaml_quote(metadata['source_sha256'])}",
+        f"content_type: {yaml_quote(metadata['content_type'])}",
+        f"processed_at: {yaml_quote(metadata['processed_at'])}",
+        "---", "",
+    ])
+    return frontmatter + markdown_body.strip() + "\n", metadata
+
+
+def split_long_paragraph(paragraph: str, max_words: int) -> list[str]:
+    words = paragraph.split()
+    if len(words) <= max_words: return [paragraph]
+    return [" ".join(words[i : i + max_words]) for i in range(0, len(words), max_words)]
+
+
+def paragraphs(markdown: str) -> list[str]:
+    body = re.sub(r"^---\n.*?\n---\n", "", markdown, flags=re.DOTALL).strip()
+    raw_parts = re.split(r"\n\s*\n", body)
+    parts: list[str] = []
+    for part in raw_parts:
+        clean = part.strip()
+        if clean:
+            parts.extend(split_long_paragraph(clean, 700))
+    return parts
+
+
+def word_count(text: str) -> int:
+    return len(re.findall(r"\S+", text))
+
+
+def chunk_markdown(markdown: str, target_words: int, overlap_words: int) -> list[str]:
+    parts = paragraphs(markdown)
+    chunks: list[str] = []
+    current: list[str] = []
+    current_words = 0
+    for part in parts:
+        words = word_count(part)
+        if current and current_words + words > target_words:
+            chunks.append("\n\n".join(current).strip())
+            if overlap_words > 0:
+                overlap: list[str] = []
+                overlap_count = 0
+                for previous in reversed(current):
+                    overlap.insert(0, previous)
+                    overlap_count += word_count(previous)
+                    if overlap_count >= overlap_words: break
+                current = overlap
+                current_words = sum(word_count(item) for item in current)
+            else:
+                current = []
+                current_words = 0
+        current.append(part)
+        current_words += words
+    if current:
+        chunks.append("\n\n".join(current).strip())
+    return [chunk for chunk in chunks if chunk]
+
+
+def write_chunk_files(collection_dir: Path, metadata: dict[str, str], chunks: list[str]) -> None:
+    chunks_dir = collection_dir / "chunks"
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    chunk_count = len(chunks)
+    for index, chunk in enumerate(chunks, start=1):
+        chunk_id = f"{metadata['source_id']}-{index:04d}"
+        frontmatter = "\n".join([
+            "---",
+            f"chunk_id: {yaml_quote(chunk_id)}",
+            f"source_id: {yaml_quote(metadata['source_id'])}",
+            f"source_title: {yaml_quote(metadata['title'])}",
+            f"source_file: {yaml_quote(metadata['source_file'])}",
+            f"source_sha256: {yaml_quote(metadata['source_sha256'])}",
+            f"chunk_index: {index}",
+            f"chunk_count: {chunk_count}",
+            f"processed_at: {yaml_quote(metadata['processed_at'])}",
+            "---", "",
+            f"# {metadata['title']} - Chunk {index}", "",
+            "[Source markdown](../source.md)", "",
+            chunk.strip(), "",
+        ])
+        (chunks_dir / f"{index:04d}.md").write_text(frontmatter, encoding="utf-8")
+
+
+def write_collection_index(collection_dir: Path, metadata: dict[str, str], chunks: list[str]) -> None:
+    rows = [
+        f"# {metadata['title']}", "",
+        f"- Source ID: `{metadata['source_id']}`",
+        f"- Source file: `{metadata['source_file']}`",
+        f"- Content type: `{metadata['content_type']}`",
+        f"- SHA256: `{metadata['source_sha256']}`",
+        f"- Processed: `{metadata['processed_at']}`",
+        f"- Chunks: `{len(chunks)}`",
+        "", "## Chunks", "",
+    ]
+    for index in range(1, len(chunks) + 1):
+        rows.append(f"- [{metadata['source_id']}-{index:04d}](chunks/{index:04d}.md)")
+    rows.append("")
+    (collection_dir / "index.md").write_text("\n".join(rows), encoding="utf-8")
+
+
+def update_global_index(collections_dir: Path) -> None:
+    manifests = sorted(collections_dir.glob("*/manifest.json"))
+    lines = [
+        "# Knowledge Collections", "",
+        "This index is generated by `dai-knowledge process`.", "",
+        "| Title | Source ID | Type | Chunks | Processed |",
+        "| --- | --- | --- | ---: | --- |",
+    ]
+    for manifest_path in manifests:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        title = manifest.get("title", manifest_path.parent.name)
+        source_id = manifest.get("source_id", manifest_path.parent.name)
+        content_type = manifest.get("content_type", "unknown")
+        chunk_count = manifest.get("chunk_count", 0)
+        processed_at = manifest.get("processed_at", "")
+        lines.append(
+            f"| [{title}]({manifest_path.parent.name}/index.md) | `{source_id}` | {content_type} | {chunk_count} | {processed_at} |"
+        )
+    lines.append("")
+    collections_dir.mkdir(parents=True, exist_ok=True)
+    (collections_dir / "_index.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def already_processed(collections_dir: Path, digest: str) -> bool:
+    for manifest_path in collections_dir.glob("*/manifest.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if manifest.get("source_sha256") == digest:
+            return True
+    return False
+
+
+def incoming_files(incoming_dir: Path) -> Iterable[Path]:
+    for path in sorted(incoming_dir.rglob("*")):
+        if not path.is_file(): continue
+        if any(part.startswith(".") for part in path.relative_to(incoming_dir).parts): continue
+        yield path
+
+
+def archive_original(path: Path, incoming_dir: Path, source_id: str) -> None:
+    archive_dir = incoming_dir / ".processed" / source_id
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    destination = archive_dir / path.name
+    if destination.exists():
+        destination = archive_dir / f"{path.stem}-{int(time.time())}{path.suffix}"
+    shutil.move(str(path), str(destination))
+
+
+def process_one(path: Path, incoming_dir: Path, collections_dir: Path, target_words: int, overlap_words: int) -> str:
+    digest = sha256_file(path)
+    if already_processed(collections_dir, digest):
+        archive_original(path, incoming_dir, f"duplicate-{digest[:12]}")
+        return f"skipped duplicate: {path.name}"
+    source_id = f"{slugify(path.stem)}-{digest[:12]}"
+    collection_dir = collections_dir / source_id
+    collection_dir.mkdir(parents=True, exist_ok=True)
+    markdown, metadata = to_markdown(path, source_id, digest)
+    chunks = chunk_markdown(markdown, target_words=target_words, overlap_words=overlap_words)
+    if not chunks:
+        raise ValueError("no chunks produced")
+    (collection_dir / "source.md").write_text(markdown, encoding="utf-8")
+    write_chunk_files(collection_dir, metadata, chunks)
+    write_collection_index(collection_dir, metadata, chunks)
+    manifest = {**metadata, "chunk_count": len(chunks), "collection_path": str(collection_dir)}
+    (collection_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    archive_original(path, incoming_dir, source_id)
+    return f"processed: {path.name} -> {source_id} ({len(chunks)} chunks)"
+
+
+def cmd_process(args: argparse.Namespace) -> int:
+    workspace = Path(args.workspace).resolve() if args.workspace else find_workspace_root(Path(__file__).parent)
+    incoming_dir = workspace / "knowledge" / "incoming"
+    collections_dir = workspace / "knowledge" / "collections"
+    incoming_dir.mkdir(parents=True, exist_ok=True)
+    collections_dir.mkdir(parents=True, exist_ok=True)
+    files = list(incoming_files(incoming_dir))
+    if not files:
+        update_global_index(collections_dir)
+        print(f"no incoming files: {incoming_dir}")
+        return 0
+    failures = 0
+    for path in files:
+        try:
+            print(process_one(path, incoming_dir, collections_dir, args.chunk_words, args.overlap_words))
+        except Exception as exc:
+            failures += 1
+            failed_dir = incoming_dir / ".failed"
+            failed_dir.mkdir(parents=True, exist_ok=True)
+            destination = failed_dir / path.name
+            if destination.exists():
+                destination = failed_dir / f"{path.stem}-{int(time.time())}{path.suffix}"
+            shutil.move(str(path), str(destination))
+            print(f"failed: {path.name}: {exc}", file=sys.stderr)
+    update_global_index(collections_dir)
+    return 1 if failures else 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    workspace = Path(args.workspace).resolve() if args.workspace else find_workspace_root(Path(__file__).parent)
+    incoming_dir = workspace / "knowledge" / "incoming"
+    collections_dir = workspace / "knowledge" / "collections"
+    incoming_count = len(list(incoming_files(incoming_dir))) if incoming_dir.exists() else 0
+    collection_count = len(list(collections_dir.glob("*/manifest.json"))) if collections_dir.exists() else 0
+    print(f"Workspace:      {workspace}")
+    print(f"Knowledge home: {workspace / 'knowledge'}")
+    print(f"Incoming files: {incoming_count}")
+    print(f"Collections:    {collection_count}")
+    print(f"Index:          {collections_dir / '_index.md'}")
+    return 0
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    print(f"watching {Path(args.workspace).resolve() if args.workspace else '(auto)'}; press Ctrl-C to stop")
+    try:
+        while True:
+            cmd_process(args)
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("stopped")
+        return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Process workspace incoming knowledge files.")
+    parser.add_argument("--workspace", help="Workspace root (auto-detected if omitted).")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    p_process = subparsers.add_parser("process", help="Process incoming files once.")
+    p_process.add_argument("--chunk-words", type=int, default=700)
+    p_process.add_argument("--overlap-words", type=int, default=80)
+    p_process.set_defaults(func=cmd_process)
+
+    p_status = subparsers.add_parser("status", help="Show knowledge ingestion status.")
+    p_status.set_defaults(func=cmd_status)
+
+    p_watch = subparsers.add_parser("watch", help="Poll incoming and process new files.")
+    p_watch.add_argument("--chunk-words", type=int, default=700)
+    p_watch.add_argument("--overlap-words", type=int, default=80)
+    p_watch.add_argument("--interval", type=int, default=15)
+    p_watch.set_defaults(func=cmd_watch)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,83 @@
+# DAI Checks — Azure Pipelines mirror of .github/workflows/dai-checks.yml
+#
+# Place this file at the repository root in Azure DevOps Repos and create a
+# pipeline pointing at it. The pipeline runs the same discipline checks the
+# pre-commit hook runs locally, at the PR boundary.
+#
+# See core/REPO_INTEGRATION.md for the side-by-side mapping between this file
+# and the GitHub Actions workflow it mirrors. The two stay in lockstep.
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - "**/*.png"
+      - "**/*.jpg"
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  pythonVersion: '3.11'
+
+steps:
+  - checkout: self
+    fetchDepth: 0  # full history so secret_scan_diff.sh can resolve the base ref
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '$(pythonVersion)'
+      addToPath: true
+    displayName: 'Set up Python $(pythonVersion)'
+
+  - script: python3 tools/scripts/check_front_matter.py
+    displayName: 'Frontmatter check'
+
+  - script: python3 tools/scripts/eval_templates.py
+    displayName: 'Template eval (all 7 templates must pass)'
+
+  - script: python3 tools/scripts/check_repo_health.py
+    displayName: 'Repo health'
+
+  - script: |
+      set -e
+      if [ "$(Build.Reason)" = "PullRequest" ]; then
+        BASE="origin/$(System.PullRequest.TargetBranch)"
+        HEAD="$(System.PullRequest.SourceBranchRef)"
+        # SourceBranchRef is like refs/heads/feature-x; resolve to a commit
+        HEAD_SHA="$(git rev-parse "$HEAD" 2>/dev/null || git rev-parse HEAD)"
+      else
+        BASE="HEAD~1"
+        HEAD_SHA="HEAD"
+      fi
+      bash tools/scripts/secret_scan_diff.sh "$BASE" "$HEAD_SHA"
+    displayName: 'Secret-pattern scan against diff'
+
+  - script: |
+      set -e
+      bash tools/scripts/skills_index.sh
+      if ! git diff --quiet memory/skills-catalog.md; then
+        echo "##vso[task.logissue type=error]memory/skills-catalog.md is stale — run tools/scripts/skills_index.sh and commit the result"
+        git diff memory/skills-catalog.md
+        exit 1
+      fi
+      echo "skills catalog is current"
+    displayName: 'Skills catalog regenerated and committed?'
+
+  - script: |
+      set -e
+      bash tools/scripts/build_session_context.sh
+      if ! git diff --quiet memory/session-context.md; then
+        echo "##vso[task.logissue type=error]memory/session-context.md is stale — run tools/scripts/build_session_context.sh and commit the result"
+        git diff memory/session-context.md
+        exit 1
+      fi
+      echo "session context is current"
+    displayName: 'Session context regenerated and committed?'

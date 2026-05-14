@@ -1,0 +1,59 @@
+# DAI CODEOWNERS
+#
+# GitHub uses this file to auto-request reviews from the right owners when a
+# PR touches their paths. Azure DevOps Repos has the equivalent capability
+# via branch policies + required reviewers — see core/REPO_INTEGRATION.md
+# for the Azure-side mapping.
+#
+# ─── ADOPTERS: REPLACE @jacobleyva BELOW WITH YOUR MAINTAINER HANDLE OR TEAM ───
+#
+# Every line in this file routes review requests at the named handle. On a
+# fresh clone, do a find-and-replace of `@jacobleyva` with the GitHub handle
+# (or `@org/team` slug) of the maintainer who should review PRs for each
+# scope. If you don't have a security-domain owner yet, you can collapse
+# multiple sections onto a single default reviewer until that role exists.
+#
+# Default owner — everything not otherwise claimed
+*                                       @jacobleyva
+
+# Core doctrine — requires a second reviewer per CONTRIBUTING.md
+/core/                                  @jacobleyva
+/core/constitution.md                   @jacobleyva
+/core/ALGORITHM.md                      @jacobleyva
+/core/ISC.md                            @jacobleyva
+/core/verification-doctrine.md          @jacobleyva
+/core/operating-principles.md           @jacobleyva
+/core/effort-tiering.md                 @jacobleyva
+/core/agent-composition.md              @jacobleyva
+/core/CODEX_INTEGRATION.md              @jacobleyva
+/core/REPO_INTEGRATION.md               @jacobleyva
+
+# EFFECTUS substrate — protected
+/memory/effectus/                          @jacobleyva
+
+# Security domain — needs a security-domain owner
+/skills/security-review/                @jacobleyva
+/skills/threat-modeling/                @jacobleyva
+/skills/incident-response/              @jacobleyva
+/skills/cis-controls/                   @jacobleyva
+/templates/threat-model-template.md     @jacobleyva
+/templates/incident-response-template.md @jacobleyva
+/memory/security/                       @jacobleyva
+/SECURITY.md                            @jacobleyva
+
+# CI + hooks — touch the discipline floor
+/.github/                               @jacobleyva
+/azure-pipelines.yml                    @jacobleyva
+/.azuredevops/                          @jacobleyva
+/.githooks/                             @jacobleyva
+/tools/scripts/secret_scan_diff.sh      @jacobleyva
+/tools/scripts/install-codex-config.py  @jacobleyva
+/tools/scripts/install_git_hooks.sh     @jacobleyva
+
+# Public-facing surface — review before publishing
+/README.md                              @jacobleyva
+/CONTRIBUTING.md                        @jacobleyva
+/SECURITY.md                            @jacobleyva
+/ROADMAP.md                             @jacobleyva
+/LICENSE                                @jacobleyva
+/CHANGELOG.md                           @jacobleyva

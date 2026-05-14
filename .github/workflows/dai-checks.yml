@@ -1,0 +1,84 @@
+name: DAI Checks
+
+# Runs the same discipline checks that .githooks/pre-commit runs locally, but
+# at the PR boundary so a missed hook on a contributor's machine doesn't let
+# a frontmatter / secret / template-stub issue land on main.
+#
+# Mirror this workflow in azure-pipelines.yml when the team uses Azure DevOps
+# Repos + Azure Pipelines instead of GitHub. The two pipelines call the same
+# scripts (tools/scripts/*), so they stay in lockstep.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Opt into Node.js 24 for JavaScript actions (deprecation notice for Node 20
+# starts forcing the upgrade June 2026; removal September 2026). Setting this
+# env now means the workflow keeps running cleanly through the transition.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  checks:
+    name: Discipline checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so secret_scan_diff.sh can resolve origin/main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Frontmatter check
+        run: python3 tools/scripts/check_front_matter.py
+
+      - name: Template eval (all 7 templates must pass)
+        run: python3 tools/scripts/eval_templates.py
+
+      - name: Repo health
+        run: python3 tools/scripts/check_repo_health.py
+
+      - name: Secret-pattern scan against PR diff
+        if: github.event_name == 'pull_request'
+        run: bash tools/scripts/secret_scan_diff.sh "origin/${{ github.base_ref }}" "${{ github.event.pull_request.head.sha }}"
+
+      - name: Secret-pattern scan against push (last commit)
+        if: github.event_name == 'push'
+        run: bash tools/scripts/secret_scan_diff.sh HEAD~1 HEAD
+
+      # The skills-catalog and session-context generators write fresh
+      # `updated:` and `generated_at:` timestamps on every run. A naive
+      # `git diff --quiet` check therefore always flags them as stale even
+      # when the substantive content is identical. The `-I '<regex>'` flag
+      # (Git 2.30+) tells diff to ignore changes that only affect lines
+      # matching the regex — letting us check for real drift only.
+      - name: Skills catalog regenerated and committed?
+        run: |
+          bash tools/scripts/skills_index.sh
+          if ! git diff -I '^updated:' -I '^generated_at:' --quiet memory/skills-catalog.md; then
+            echo "::error::memory/skills-catalog.md is stale — run tools/scripts/skills_index.sh and commit the result"
+            git diff -I '^updated:' -I '^generated_at:' memory/skills-catalog.md
+            exit 1
+          fi
+          echo "skills catalog is current (timestamp drift ignored)"
+
+      - name: Session context regenerated and committed?
+        run: |
+          bash tools/scripts/build_session_context.sh
+          if ! git diff -I '^updated:' -I '^generated_at:' --quiet memory/session-context.md; then
+            echo "::error::memory/session-context.md is stale — run tools/scripts/build_session_context.sh and commit the result"
+            git diff -I '^updated:' -I '^generated_at:' memory/session-context.md
+            exit 1
+          fi
+          echo "session context is current (timestamp drift ignored)"

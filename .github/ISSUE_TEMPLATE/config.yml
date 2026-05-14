@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/jacobleyva/domain-ai-infrastructure/security/advisories/new
+    about: "Report security issues privately via GitHub Security Advisory. Do NOT open a public issue. See SECURITY.md for the full disclosure policy."
+  - name: General question
+    url: https://github.com/jacobleyva/domain-ai-infrastructure/discussions
+    about: "Have a question that isn't an install report or a doctrine proposal? Start a Discussion."
