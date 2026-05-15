@@ -20,3 +20,4 @@ artifact_type: operating-rule
 - keep project context in project files, not in memory alone
 - keep member-specific scratch notes separate from shared state
 - optimize for continuity across sessions
+- session branches write only to `memory/work/{slug}.md` — shared memory files (`current-focus.md`, `effectus/`, `decisions/`) change via dedicated PRs, not inside session branches

@@ -15,6 +15,9 @@ artifact_type: operational-memory
 
 # Current Focus
 
+> **Shared file — edit via a dedicated PR, not inside a session branch.**
+> Session branches write only to `memory/work/{slug}.md` (unique slug per session). Changes to this file go on their own branch and are merged to `main` when priorities genuinely shift — not as part of normal session work. See `CONTRIBUTING.md` → "Session Branch Isolation".
+
 > **(SEED) — replace with your team's current priorities.**
 
 Update this file when team priorities change. Keep it short — three to five bullets is the target.

@@ -17,6 +17,34 @@ artifact_type: contributor-guide
 
 > DAI — Domain AI Infrastructure — is a discipline layer that lives in files, not in models. Contributions are welcome. The bar is that every contribution leaves the doctrine sharper than it found it.
 
+## Session Branch Isolation
+
+DAI supports parallel team usage. The rule that makes it work without merge conflicts:
+
+**Session branches write only to `memory/work/{slug}.md`.** The slug must be unique per session (use `YYYYMMDD-{name}-{topic}` or any convention your team agrees on). Because each session gets its own slug, there is zero overlap between branches — no race to the same file.
+
+**Shared memory files are not session work.** These files change infrequently and always go through a dedicated PR, never inside a session branch:
+
+| File | When it changes |
+|------|----------------|
+| `memory/current-focus.md` | Team priorities shift (weekly or less) |
+| `memory/effectus/` | Mission/goals/strategy updates (quarterly or less) |
+| `memory/decisions/` | Cross-team architectural decisions |
+
+**The Git workflow in practice:**
+
+```sh
+# Start a session
+git checkout -b yourname/YYYYMMDD-topic
+# do work — write notes to memory/work/YYYYMMDD-yourname-topic.md only
+git add memory/work/YYYYMMDD-yourname-topic.md
+git commit -m "session: YYYYMMDD topic summary"
+git push origin yourname/YYYYMMDD-topic
+# open PR → merge → done, no conflict with other branches
+```
+
+If you genuinely need to update `current-focus.md` or `effectus/`, open a separate short-lived branch just for that change and PR it independently. Keep it out of your session branch.
+
 ## Before You Open a PR
 
 Read these three files, in this order. They are short.
