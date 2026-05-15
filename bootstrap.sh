@@ -151,7 +151,12 @@ Execute, Verify, Learn).
 For acceptance criteria, follow core/ISC.md — every criterion is one binary
 tool probe; tool-verified evidence required before marking [x].
 
-If asked about an available skill, check skills/skills-map.md.
+For skills, use the vendor-neutral CLI at bin/dai-skill:
+  bin/dai-skill list           list every skill, one line each (cheap discovery)
+  bin/dai-skill show <name>    print the full SKILL.md to stdout (on-demand load)
+  bin/dai-skill path <name>    print the absolute path
+This convention is shared by every coding-assistant CLI DAI supports.
+skills/skills-map.md remains as a human-browsable index.
 
 Keep higher-priority system instructions in force. Use this workspace as
 added scaffolding, not as a replacement for Codex behavior.
@@ -170,6 +175,16 @@ echo ""
 echo "If Codex describes the constitution + Algorithm + ISC + verification doctrine"
 echo "+ tiering + identity, the wiring works. If Codex says 'I don't see that file',"
 echo "the path in config.toml is wrong — re-check the block above."
+echo ""
+echo "Step C — Skill discovery (works under any coding-assistant CLI):"
+echo ""
+echo "  bin/dai-skill list           # one line per skill, name + description"
+echo "  bin/dai-skill show <name>    # print the full SKILL.md to stdout"
+echo "  bin/dai-skill path <name>    # print the absolute path"
+echo ""
+echo "Models running under Codex, Claude Code, Gemini CLI, Cursor, or any other"
+echo "shell-capable assistant invoke skills through this CLI — same convention"
+echo "everywhere. See core/AI_CLI_ADAPTERS.md for the full convention."
 echo ""
 echo "=========================================="
 echo "  Bootstrap complete."

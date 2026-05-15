@@ -15,6 +15,47 @@ artifact_type: changelog
 
 # CHANGELOG
 
+## v1.1 — 2026-05-14 — Vendor-Neutral Skill CLI
+
+Added `bin/dai-skill`, the vendor-neutral primitive for skill discovery and on-demand load. Every coding-assistant CLI DAI supports — Codex, Claude Code, Gemini CLI, Cursor, Aider, and any shell-capable future entrant — uses the same convention via shell-out, no per-vendor slash-command implementation needed.
+
+### What's New
+
+```sh
+bin/dai-skill list           # one line per skill: name + description
+bin/dai-skill show <name>    # print the full SKILL.md to stdout
+bin/dai-skill path <name>    # print the absolute path
+bin/dai-skill help           # print full usage
+```
+
+Python 3 stdlib only. Auto-detects the workspace root (or accepts `--workspace` / `PAI_WORKSPACE`). Reads `skills/*/SKILL.md` frontmatter (`name:` and `description:`) — adding a new skill requires only creating the file; the CLI auto-discovers it with no registration step.
+
+### Why a CLI Instead of Per-Vendor Slash Commands
+
+Slash commands (`/dai-security-review`, `/skill ...`) are a Claude Code / Cursor surface that doesn't exist under Codex, Gemini CLI, or Aider. Building the discovery layer once as a CLI gives every vendor the same UX via shell-out, composes with standard tools (`bin/dai-skill list | grep security`), and keeps the source of truth in the `skills/` tree rather than duplicated across N vendor-specific command directories.
+
+The full rationale lives in `core/AI_CLI_ADAPTERS.md` under "Skill Discovery & Loading — `bin/dai-skill`".
+
+### Why Not Eager-Load Every SKILL.md
+
+Each `SKILL.md` is ~100-200 lines. Loading all 9 into every session burns ~1,500 lines of context for skills that won't be invoked. The CLI's `list` returns ~10 lines (one per skill); `show` only fires when a skill is actually being run. Cheap discovery, on-demand load — the same pattern that `bin/dai-knowledge` uses for knowledge ingestion.
+
+### Wiring Files Updated
+
+All four vendor surfaces now teach their models to use the CLI:
+
+- `CLAUDE.md` — Claude Code wiring
+- `GEMINI.md` — Gemini CLI wiring
+- `.cursorrules` — Cursor wiring
+- `tools/scripts/install-codex-config.py` — Codex `developer_instructions` block
+- `bootstrap.sh` heredoc Codex template + new "Step C — Skill discovery" block in the end-of-run output
+- `core/CODEX_INTEGRATION.md` — Codex integration recipe
+- `core/AI_CLI_ADAPTERS.md` — added the canonical "Skill Discovery & Loading" section
+
+`skills/skills-map.md` remains as a human-browsable index. `memory/skills-catalog.md` remains as the auto-generated session-context catalog. No skill content changed.
+
+---
+
 ## v1.0 — 2026-05-14 — DAI Team Launch
 
 DAI Team v1.0 — *Discipline Externalized*. Initial public release.

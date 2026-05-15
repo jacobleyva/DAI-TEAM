@@ -85,7 +85,12 @@ Execute, Verify, Learn).
 For acceptance criteria, follow core/ISC.md — every criterion is one binary
 tool probe; tool-verified evidence required before marking [x].
 
-If asked about an available skill, check skills/skills-map.md.
+For skills, use the vendor-neutral CLI at bin/dai-skill:
+  bin/dai-skill list           list every skill, one line each (cheap discovery)
+  bin/dai-skill show <name>    print the full SKILL.md to stdout (on-demand load)
+  bin/dai-skill path <name>    print the absolute path
+This convention is shared by every coding-assistant CLI DAI supports.
+skills/skills-map.md remains as a human-browsable index.
 
 Keep higher-priority system instructions in force. Use this workspace as
 added scaffolding, not as a replacement for Codex behavior.

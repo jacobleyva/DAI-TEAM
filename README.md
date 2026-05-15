@@ -7,7 +7,7 @@ audience: technical-teams
 owner: team
 status: active
 updated: 2026-05-14
-version: v1.0
+version: v1.1
 tags:
   - start-here
   - overview
@@ -83,7 +83,7 @@ DAI is plain markdown, plain shell, plain Python. No daemons, no telemetry, no c
 - `skills/` — reusable AI workflows. Each skill is a folder with `SKILL.md` + optional per-vendor agent specs. Includes security-review, threat-modeling, incident-response, and 6 more.
 - `team/` — collaboration and handoff conventions.
 - `tools/scripts/` — the deterministic discipline layer (frontmatter check, repo health, knowledge indexing, session bootstrap, dependency audit, Codex config helper).
-- `bin/` — executables (`dai-knowledge` and others).
+- `bin/` — executables: `dai-knowledge` (knowledge ingestion) and `dai-skill` (vendor-neutral skill discovery & on-demand load — see below).
 - `.githooks/` — pre-commit guardrails.
 
 ## Why It Helps
@@ -136,6 +136,23 @@ The doctrine itself never branches per vendor. The constitution's NEVER list, th
 The architectural finding behind DAI: **Claude Code lets the harness be light because the model carries discipline; Codex needs the harness to be deterministic because the model won't.** Different design pressures, same destination. The doctrine itself — constitution, Algorithm, ISC, verification doctrine, EFFECTUS substrate, skills, templates, knowledge — is vendor-neutral. Only the startup-wiring file differs per vendor.
 
 For other coding-assistant CLIs (Cursor, Aider, etc.), the doctrine still applies; the integration recipe is the only piece that needs an adapter. A documented adapter pattern is on the roadmap; contributions welcome.
+
+## Skills — Vendor-Neutral Discovery & Load
+
+DAI ships 9 reusable AI workflows under `skills/`. Each is a folder with a `SKILL.md` entry point. Eagerly loading every `SKILL.md` into every session would burn ~1,500 lines of context for skills that won't be invoked — so DAI exposes them through a single CLI any coding-assistant CLI can shell out to:
+
+```sh
+bin/dai-skill list           # one line per skill: name + description (cheap discovery)
+bin/dai-skill show <name>    # print the full SKILL.md to stdout (on-demand load)
+bin/dai-skill path <name>    # print the absolute path (for @-mention style references)
+bin/dai-skill help           # print full usage
+```
+
+The CLI is the universal primitive. Same convention works under Codex, Claude Code, Gemini CLI, Cursor, Aider, or any shell-capable assistant — no per-vendor slash-command implementations needed. Python 3 stdlib only; zero external dependencies. The wiring files (`CLAUDE.md`, `GEMINI.md`, `.cursorrules`, Codex `developer_instructions`) all teach the model to use it.
+
+Adding a new skill: drop `skills/<new-name>/SKILL.md` with valid frontmatter (`name:` and `description:`). The CLI auto-discovers it; no registration step.
+
+See `core/AI_CLI_ADAPTERS.md` for the full convention and the "why CLI vs slash-commands" rationale.
 
 ## Doctrine Tour
 

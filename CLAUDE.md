@@ -20,7 +20,13 @@ For any **non-trivial work** (multi-file, ambiguous, touching `core/`, `memory/`
 - Hold to the verification doctrine. See `core/verification-doctrine.md`. Tool-verified evidence required before marking any ISC `[x]`.
 - Read the constitution. See `core/constitution.md`. The NEVER / ALWAYS / BEFORE rules are non-negotiable defaults.
 
-For **skills**, check `skills/skills-map.md` and read the matching `SKILL.md` before invoking the workflow.
+For **skills**, use the vendor-neutral CLI:
+
+- `bin/dai-skill list` — one line per skill, name + description (cheap discovery, no eager file reads)
+- `bin/dai-skill show <name>` — print the full `SKILL.md` to stdout, on-demand
+- `bin/dai-skill path <name>` — print the absolute path (use with `@` for Claude Code's file reference)
+
+The CLI is the universal primitive — same convention works under Codex, Gemini CLI, Cursor, Aider, or any shell-capable assistant. Skills remain on disk at `skills/<name>/SKILL.md`; `skills/skills-map.md` stays for human browsing.
 
 For **security work** (review, threat-modeling, incident-response), route through `core/SECURITY_DOMAIN_OVERVIEW.md`.
 

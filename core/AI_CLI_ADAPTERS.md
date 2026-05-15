@@ -20,6 +20,25 @@ artifact_type: integration-guide
 
 > DAI is vendor-neutral by design. The doctrine never branches per coding-assistant CLI — the constitution's NEVER list, the six-phase Algorithm, ISC granularity, the EFFECTUS substrate, the skills, the templates all run identically across vendors. **Only the startup-wiring file differs.** This document is the table of those wiring conventions plus concrete adapter recipes.
 
+## Skill Discovery & Loading — `bin/dai-skill`
+
+DAI ships a **vendor-neutral CLI** for skill discovery and on-demand load. Every coding-assistant CLI DAI supports — Codex, Claude Code, Gemini CLI, Cursor, Aider, Copilot Chat, Continue, Cody, and any shell-capable future entrant — uses the same convention:
+
+```sh
+bin/dai-skill list           # one line per skill: name + description (cheap discovery)
+bin/dai-skill show <name>    # print the full SKILL.md to stdout (on-demand load)
+bin/dai-skill path <name>    # print the absolute path (for `@`-mention style references)
+bin/dai-skill help           # print full usage
+```
+
+The CLI is the universal primitive. It auto-detects the workspace root (or accepts `--workspace` / `PAI_WORKSPACE`), reads every `skills/*/SKILL.md` once, and parses the frontmatter `name:` and `description:` fields. No vendor-specific assumptions; Python 3 stdlib only; zero external dependencies.
+
+**Why a CLI instead of per-vendor slash commands.** Slash commands (`/dai-security-review`, `/skill ...`) are a Claude Code / Cursor surface that doesn't exist under Codex, Gemini CLI, or Aider. Building the discovery layer once as a CLI gives every CLI the same UX via shell-out, lets users compose with standard tools (`bin/dai-skill list | grep security`), and keeps the source of truth in the `skills/` tree rather than duplicated across N vendor-specific command directories.
+
+**Why not just eager-load every SKILL.md.** Each `SKILL.md` is ~100-200 lines. Loading all 9 into every session burns ~1,500 lines of context for skills that won't be invoked. The CLI's `list` returns ~10 lines (one per skill); `show` only fires when a skill is actually being run.
+
+**Naming convention.** Skill names match the `name:` field in each skill's frontmatter (same as the directory name today). Adding a new skill requires only `skills/<new-name>/SKILL.md` with valid frontmatter — the CLI auto-discovers it; no registration step.
+
 ## Shipped Wirings — First-Class
 
 DAI ships three vendor-specific wiring files in the box:
