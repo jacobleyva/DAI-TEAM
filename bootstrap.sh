@@ -38,17 +38,24 @@ HEADER
 # ----- 1/5 Prerequisites -----
 echo "[1/5] Checking prerequisites..."
 MISSING=""
-for tool in python3 git; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        MISSING="$MISSING $tool"
-    fi
-done
+# Accept python3 (Linux/Mac) or python (Windows Git Bash / some distros)
+if command -v python3 >/dev/null 2>&1; then
+    DAI_PYTHON="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+    DAI_PYTHON="$(command -v python)"
+else
+    MISSING="$MISSING python3"
+    DAI_PYTHON=""
+fi
+if ! command -v git >/dev/null 2>&1; then
+    MISSING="$MISSING git"
+fi
 if [ -n "$MISSING" ]; then
     echo "  MISSING required tools:$MISSING" >&2
     echo "  Install them and re-run." >&2
     exit 1
 fi
-echo "  python3: $(command -v python3)"
+echo "  python:  $DAI_PYTHON"
 echo "  git:     $(command -v git)"
 if command -v pdftotext >/dev/null 2>&1; then
     echo "  pdftotext: $(command -v pdftotext)  (PDF ingest enabled)"

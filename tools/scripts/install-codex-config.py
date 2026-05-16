@@ -37,11 +37,14 @@ from pathlib import Path
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError:
-    sys.exit(
-        "ERROR: tomllib not available. install-codex-config.py requires Python 3.11+.\n"
-        "       Install a newer Python or wire ~/.codex/config.toml manually following\n"
-        "       core/CODEX_INTEGRATION.md Step 2.5."
-    )
+    try:
+        import tomli as tomllib  # pip install tomli  (Python 3.10 backport)
+    except ModuleNotFoundError:
+        sys.exit(
+            "ERROR: tomllib not available. Requires Python 3.11+, or Python 3.10 with tomli:\n"
+            "       pip install tomli\n"
+            "       Or wire config.toml manually: core/CODEX_INTEGRATION.md Step 2.5."
+        )
 
 
 DEFAULT_CONFIG = Path.home() / ".codex" / "config.toml"
